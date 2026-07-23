@@ -1,0 +1,71 @@
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: cart-service-mirroring
+  namespace: shopk8s
+spec:
+  hosts:
+    - cart-service.shopk8s.svc.cluster.local
+
+  gateways:
+    - mesh
+
+  http:
+    - name: mirror-to-v2
+
+      route:
+        - destination:
+            host: cart-service.shopk8s.svc.cluster.local
+            subset: v1
+            port:
+              number: 8080
+
+      # Mirror 100% of traffic to the v2 subset.
+      # Mirrored requests are fire-and-forget: responses from
+      # the mirror target are discarded.
+      mirror:
+        host: cart-service.shopk8s.svc.cluster.local
+        subset: v2
+        port:
+          number: 8080
+
+      # Percentage of traffic to actually mirror.
+      # Useful for controlling load on the mirror target.
+      mirrorPercentage:
+        value: 100.0
+
+#Traffic mirroring (also called shadowing) sends a copy of
+#live traffic to a secondary service without affecting the
+#primary request/response flow.
+
+#Use cases:
+
+  #Testing a new version with real production traffic
+  #Validating behavior before a canary rollout
+  #Comparing performance between versions
+  #Detecting regressions in a shadow environment
+
+#Key points:
+
+  #The mirrored request is fire-and-forget. The client only
+  #sees the response from the primary destination (v1 above).
+
+  #Mirrored requests have the Host/Authority header appended
+  #with -shadow (e.g., cart-service-shadow). This helps the
+  #mirror target distinguish real from mirrored traffic.
+
+  #The mirror target's responses and errors do not affect
+  #real users, making this a safe way to test with production
+  #load patterns.
+
+  #mirrorPercentage lets you control how much traffic gets
+  #mirrored. Start low (10-20%) if the mirror target has
+  #limited capacity.
+
+  #Mirroring requires an existing DestinationRule defining
+  #the subsets referenced here.
+
+  #Be careful with side effects: mirrored requests still
+  #hit your mirror target. If v2 writes to a database or
+  #calls external APIs, those side effects will occur.
+  #Use read-only or isolated environments for mirroring.

@@ -1,0 +1,58 @@
+apiVersion: networking.istio.io/v1
+kind: WorkloadEntry
+metadata:
+  name: cart-vm-01
+  namespace: shopk8s
+spec:
+  address: 10.20.30.40
+
+  serviceAccount: cart-service-sa
+
+  labels:
+    app: cart-service
+    version: vm-v1
+
+  ports:
+    http: 8080
+
+  locality: us-east-1/us-east-1a
+  network: vm-network
+
+#WorkloadEntry represents an individual non-Kubernetes 
+#workload, usually a VM, inside Istio's service registry.
+
+#It gives the workload:
+
+#An address
+#Labels
+#Ports
+#Network information
+#Locality information
+#Service-account identity association
+
+#It is commonly paired with a ServiceEntry
+
+
+---
+#Register that VM workload as a service:
+apiVersion: networking.istio.io/v1
+kind: ServiceEntry
+metadata:
+  name: cart-vm-service
+  namespace: shopk8s
+spec:
+  hosts:
+    - cart-vm.shopk8s.internal
+
+  location: MESH_INTERNAL
+  resolution: STATIC
+
+  ports:
+    - number: 8080
+      name: http
+      protocol: HTTP
+
+  workloadSelector:
+    labels:
+      app: cart-service
+      version: vm-v1

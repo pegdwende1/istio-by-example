@@ -1,0 +1,92 @@
+#The Telemetry resource configures how Istio generates:
+
+  #Metrics
+  #Access logs
+  #Distributed traces
+
+#It supports workload-specific, namespace-specific, and mesh-wide 
+#configuration. The most specific applicable configuration takes 
+#precedence.
+
+#Provider names must match providers configured in the Istio mesh
+#configuration.
+
+#Enable access logs for cart-service
+
+#Assuming a provider named envoy exists
+
+apiVersion: telemetry.istio.io/v1
+kind: Telemetry
+metadata:
+  name: cart-service-access-logs
+  namespace: shopk8s
+spec:
+  selector:
+    matchLabels:
+      app: cart-service
+
+  accessLogging:
+    - providers:
+        - name: envoy
+
+
+---
+#Configure tracing
+
+#Assume Istio has a tracing provider named otel-tracing
+apiVersion: telemetry.istio.io/v1
+kind: Telemetry
+metadata:
+  name: cart-service-tracing
+  namespace: shopk8s
+spec:
+  selector:
+    matchLabels:
+      app: cart-service
+
+  tracing:
+    - providers:
+        - name: otel-tracing
+
+      randomSamplingPercentage: 10
+
+      customTags:
+        environment:
+          literal:
+            value: production
+
+        request_id:
+          header:
+            name: x-request-id
+            defaultValue: unknown
+
+---
+#Ten percent sampling can still be expensive at substantial
+#traffic volume. In production, sampling is a capacity and
+#cost decision, not a decorative number copied from a blog
+
+apiVersion: telemetry.istio.io/v1
+kind: Telemetry
+metadata:
+  name: cart-service-metrics
+  namespace: shopk8s
+spec:
+  selector:
+    matchLabels:
+      app: cart-service
+
+  metrics:
+    - providers:
+        - name: prometheus
+
+      overrides:
+        - match:
+            metric: REQUEST_COUNT
+
+          tagOverrides:
+            request_host:
+              operation: UPSERT
+              value: request.host
+
+            destination_port:
+              operation: REMOVE

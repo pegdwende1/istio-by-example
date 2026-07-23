@@ -1,0 +1,41 @@
+#RequestAuthentication validates request-level credentials,
+#normally JWTs.
+
+#It verifies things such as:
+
+  #JWT issuer Signature - JWKS signing keys - Audience - 
+  #Token location
+
+#Critically, RequestAuthentication does not automatically require
+ #a token. A request containing an invalid token is rejected, but 
+ #a request containing no token may still be accepted. Pair it 
+ #with AuthorizationPolicy when JWT authentication must be 
+ #mandatory.
+
+#JWT validation
+
+#Replace the issuer, audience, and JWKS URI with your identity
+ #provider's real values.
+
+apiVersion: security.istio.io/v1
+kind: RequestAuthentication
+metadata:
+  name: cart-service-jwt
+  namespace: shopk8s
+spec:
+  selector:
+    matchLabels:
+      app: cart-service
+
+  jwtRules:
+    - issuer: https://auth.example.com/
+      audiences:
+        - cart-api
+
+      jwksUri: https://auth.example.com/.well-known/jwks.json
+
+      fromHeaders:
+        - name: Authorization
+          prefix: "Bearer "
+
+      forwardOriginalToken: true

@@ -1,0 +1,165 @@
+#The Kubernetes Gateway API is the successor to Istio's classic
+#networking CRDs (Gateway, VirtualService, DestinationRule).
+
+#Istio has committed to this API as its default traffic management
+#interface going forward. The classic Istio APIs will continue to
+#work, but new features may land in the Gateway API first.
+
+#Key differences from classic Istio APIs:
+
+  #Gateway API is a Kubernetes standard, not Istio-specific
+  #Role-oriented: separates infrastructure (Gateway) from app routing (HTTPRoute)
+  #Portable across implementations (Istio, Envoy Gateway, Cilium, etc.)
+  #More granular resource model (HTTPRoute, GRPCRoute, TCPRoute, TLSRoute)
+
+#Prerequisites:
+  #Install the Gateway API CRDs:
+  #kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.0/standard-install.yaml
+
+---
+#Gateway (Kubernetes Gateway API version)
+#This replaces the Istio Gateway resource.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: shop-gateway
+  namespace: shopk8s
+spec:
+  #gatewayClassName tells Kubernetes which controller manages this.
+  #For Istio, use "istio".
+  gatewayClassName: istio
+
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      hostname: cart.example.com
+      allowedRoutes:
+        namespaces:
+          from: Same
+
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: cart.example.com
+
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: cart-example-com-tls
+            kind: Secret
+
+      allowedRoutes:
+        namespaces:
+          from: Same
+
+---
+#HTTPRoute replaces VirtualService for HTTP traffic routing.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: cart-service-route
+  namespace: shopk8s
+spec:
+  parentRefs:
+    - name: shop-gateway
+      sectionName: https
+
+  hostnames:
+    - cart.example.com
+
+  rules:
+    # Canary header routing (equivalent to VirtualService header match)
+    - matches:
+        - headers:
+            - name: x-cart-version
+              value: v2
+
+      backendRefs:
+        - name: cart-service-v2
+          port: 8080
+
+    # Weighted canary split (equivalent to VirtualService weighted routing)
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /cart
+
+      backendRefs:
+        - name: cart-service-v1
+          port: 8080
+          weight: 90
+
+        - name: cart-service-v2
+          port: 8080
+          weight: 10
+
+      # Timeouts (equivalent to VirtualService timeout)
+      timeouts:
+        request: 5s
+
+    # URL rewrite
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api/cart
+
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /cart
+
+      backendRefs:
+        - name: cart-service-v1
+          port: 8080
+
+---
+#GRPCRoute for gRPC services (no Istio equivalent existed before)
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata:
+  name: cart-grpc-route
+  namespace: shopk8s
+spec:
+  parentRefs:
+    - name: shop-gateway
+      sectionName: https
+
+  hostnames:
+    - cart.example.com
+
+  rules:
+    - matches:
+        - method:
+            service: cart.CartService
+            method: GetCart
+
+      backendRefs:
+        - name: cart-service-v1
+          port: 9090
+
+#Mapping from classic Istio APIs to Gateway API:
+
+  #Istio Gateway         -> Gateway (gateway.networking.k8s.io)
+  #Istio VirtualService  -> HTTPRoute / GRPCRoute / TCPRoute / TLSRoute
+  #Istio DestinationRule -> BackendPolicy (partial, still evolving)
+
+#What Gateway API does NOT yet replace:
+  #DestinationRule (circuit breaking, connection pools, outlier detection)
+  #AuthorizationPolicy
+  #RequestAuthentication
+  #PeerAuthentication
+  #Telemetry
+  #Sidecar
+
+#These remain Istio-specific CRDs and are still needed alongside
+#the Gateway API for a complete mesh configuration.
+
+#Migration strategy:
+  #1. Install Gateway API CRDs
+  #2. Start new services with HTTPRoute / Gateway API
+  #3. Gradually migrate existing VirtualServices
+  #4. Keep DestinationRules until BackendPolicy matures
+  #5. Classic Istio APIs and Gateway API can coexist

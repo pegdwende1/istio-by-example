@@ -1,0 +1,42 @@
+apiVersion: networking.istio.io/v1
+kind: WorkloadGroup
+metadata:
+  name: cart-vms
+  namespace: shopk8s
+spec:
+  metadata:
+    labels:
+      app: cart-service
+      version: vm-v1
+
+  template:
+    serviceAccount: cart-service-sa
+
+    ports:
+      http: 8080
+
+    network: vm-network
+
+    locality: us-east-1/us-east-1a
+
+  probe:
+    httpGet:
+      port: 8080
+      path: /healthz
+
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+
+#WorkloadGroup acts like a template for a group of VM workloads,
+#somewhat analogous to how a Kubernetes Deployment defines common
+#workload properties.
+
+#It helps with:
+
+      #VM onboarding
+      #Shared labels
+      #Shared ports
+      #Service-account settings
+      #Generating VM bootstrap configuration

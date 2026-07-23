@@ -1,0 +1,71 @@
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: mesh-wide-strict-mtls
+  namespace: istio-system
+spec:
+  mtls:
+    mode: STRICT
+
+#PeerAuthentication controls the inbound mTLS requirements of
+ #workloads.
+
+#It answers:
+
+#Must callers establish an Istio mutual-TLS connection before
+#they can reach this workload?
+
+#The primary modes are:
+
+    #STRICT: only Istio mTLS is accepted.
+    #PERMISSIVE: both plaintext and mTLS are accepted.
+    #DISABLE: plaintext is accepted.
+    #UNSET: inherit a broader policy.
+
+#PeerAuthentication governs what the receiving workload accepts.
+#Client-side TLS behavior may also be controlled through DestinationRule.
+
+#Mesh-wide strict mTLS
+
+#Place this in the Istio root namespace, usually istio-system
+
+---
+
+# Workload-specific strict mTLS
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: cart-service-strict-mtls
+  namespace: shopk8s
+spec:
+  selector:
+    matchLabels:
+      app: cart-service
+
+  mtls:
+    mode: STRICT
+
+---
+#Port-specific exception
+
+#Port numbers in portLevelMtls are container workload ports,
+ #not necessarily Kubernetes Service ports.
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: cart-service-port-mtls
+  namespace: shopk8s
+spec:
+  selector:
+    matchLabels:
+      app: cart-service
+
+  mtls:
+    mode: STRICT
+
+  portLevelMtls:
+    8080:
+      mode: STRICT
+
+# You generally should not create a plaintext exception unless a 
+#legacy workload genuinely requires one.

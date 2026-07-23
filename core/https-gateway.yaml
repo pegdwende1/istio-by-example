@@ -1,0 +1,28 @@
+apiVersion: networking.istio.io/v1
+kind: Gateway
+metadata:
+  name: shop-https-gateway
+  namespace: shopk8s
+spec:
+  selector:
+    istio: ingressgateway
+
+  servers:
+    - port:
+        number: 443
+        name: https
+        protocol: HTTPS
+
+      tls:
+        mode: SIMPLE
+        credentialName: cart-example-com-tls
+
+      hosts:
+        - cart.example.com
+
+# The TLS secret must exist where the ingress gateway can access
+# it, commonly in istio-system.
+
+
+#This is edge TLS between the external client and ingress gateway. 
+#It is separate from mesh mTLS between workloads.

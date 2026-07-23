@@ -1,0 +1,58 @@
+#ServiceEntry adds a service to Istio's service registry.
+
+#It is commonly used for:
+
+  #External APIs
+  #SaaS platforms
+  #External databases
+  #Services outside Kubernetes
+  #VM workloads
+  #Controlled egress
+
+#It lets Istio understand that an external hostname is a known 
+#destination instead of arbitrary internet traffic.
+
+apiVersion: networking.istio.io/v1
+kind: ServiceEntry
+metadata:
+  name: stripe-api
+  namespace: shopk8s
+spec:
+  hosts:
+    - api.stripe.com
+
+  location: MESH_EXTERNAL
+
+  ports:
+    - number: 443
+      name: https
+      protocol: TLS
+
+  resolution: DNS
+
+  exportTo:
+    - "."
+
+---
+#You can then apply a DestinationRule to that external 
+#destination:
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: stripe-api
+  namespace: shopk8s
+spec:
+  host: api.stripe.com
+
+  trafficPolicy:
+    tls:
+      mode: SIMPLE
+
+    connectionPool:
+      tcp:
+        maxConnections: 20
+
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: 10s
+      baseEjectionTime: 30s

@@ -1,0 +1,29 @@
+apiVersion: networking.istio.io/v1beta1
+kind: ProxyConfig
+metadata:
+  name: cart-service-proxy
+  namespace: shopk8s
+spec:
+  selector:
+    matchLabels:
+      app: cart-service
+
+  concurrency: 2
+
+  environmentVariables:
+    ISTIO_META_DNS_CAPTURE: "true"
+
+  image:
+    imageType: distroless
+
+#ProxyConfig customizes Envoy proxy behavior for:
+
+  #Individual workloads
+  #A namespace
+  #The whole mesh
+
+#It can configure concurrency, environment variables, 
+#image settings, status ports, and other proxy-level options.
+
+#Unlike most dynamic Istio configuration, many ProxyConfig
+#changes require workload restarts

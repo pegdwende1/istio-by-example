@@ -1,0 +1,122 @@
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: cart-service-fault-injection
+  namespace: shopk8s
+spec:
+  hosts:
+    - cart-service.shopk8s.svc.cluster.local
+
+  gateways:
+    - mesh
+
+  http:
+    # ------------------------------------------------------------------
+    # RULE 1: Inject a 3-second delay into 10% of requests
+    # ------------------------------------------------------------------
+    # Useful for testing timeout handling in upstream callers.
+    - name: delay-fault
+
+      match:
+        - headers:
+            x-fault-test:
+              exact: delay
+
+      fault:
+        delay:
+          percentage:
+            value: 10.0
+          fixedDelay: 3s
+
+      route:
+        - destination:
+            host: cart-service.shopk8s.svc.cluster.local
+            port:
+              number: 8080
+
+    # ------------------------------------------------------------------
+    # RULE 2: Return HTTP 503 for 5% of requests
+    # ------------------------------------------------------------------
+    # Useful for testing retry logic and circuit-breaker behavior.
+    - name: abort-fault
+
+      match:
+        - headers:
+            x-fault-test:
+              exact: abort
+
+      fault:
+        abort:
+          percentage:
+            value: 5.0
+          httpStatus: 503
+
+      route:
+        - destination:
+            host: cart-service.shopk8s.svc.cluster.local
+            port:
+              number: 8080
+
+    # ------------------------------------------------------------------
+    # RULE 3: Combine delay + abort
+    # ------------------------------------------------------------------
+    # Simulates a degraded dependency that is both slow and failing.
+    - name: combined-fault
+
+      match:
+        - headers:
+            x-fault-test:
+              exact: chaos
+
+      fault:
+        delay:
+          percentage:
+            value: 50.0
+          fixedDelay: 2s
+
+        abort:
+          percentage:
+            value: 20.0
+          httpStatus: 500
+
+      route:
+        - destination:
+            host: cart-service.shopk8s.svc.cluster.local
+            port:
+              number: 8080
+
+    # ------------------------------------------------------------------
+    # DEFAULT: Normal routing (no faults)
+    # ------------------------------------------------------------------
+    - name: normal
+
+      route:
+        - destination:
+            host: cart-service.shopk8s.svc.cluster.local
+            port:
+              number: 8080
+
+#Fault injection is Istio's built-in chaos engineering tool.
+
+#It supports two fault types:
+
+  #delay: Adds artificial latency before forwarding the request
+  #abort: Returns an error code without forwarding the request
+
+#Key points:
+
+  #Faults are injected by the client-side sidecar, so the
+  #destination service never sees the aborted requests.
+
+  #Use header-based matching (as shown above) to limit fault
+  #injection to test traffic only.
+
+  #Percentage controls how many matching requests are affected.
+  #A value of 100.0 means every matching request gets the fault.
+
+  #Fault injection pairs naturally with retry and timeout testing.
+  #Inject a delay longer than your timeout to verify timeout behavior.
+  #Inject aborts to verify retry logic fires correctly.
+
+  #Never deploy fault-injection VirtualServices to production
+  #without gating them behind a test header or a specific source.

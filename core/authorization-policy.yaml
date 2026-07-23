@@ -1,0 +1,169 @@
+# AuthorizationPolicy controls who can access what.
+
+#It can evaluate:
+
+#Caller workload identity
+    #Namespace - Service account - HTTP method - URL path - 
+    #Host - Source IP - JWT claims - Request headers - 
+    #Destination port
+
+# Supported actions include:
+
+    #ALLOW DENY CUSTOM AUDIT
+
+#If an ALLOW policy applies to a workload, requests not matching 
+#an allow rule are denied. Istio authorization policies can 
+#enforce both service-identity 
+#and request-level access controls
+
+#Step 1: Default-deny cart-service
+
+#An ALLOW policy containing no rules allows nothing:
+
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: cart-service-default-deny
+  namespace: shopk8s
+spec:
+  selector:
+    matchLabels:
+      app: cart-service
+
+      #This applies only to selected cart-service workloads, 
+      #not the entire namespace.
+
+---
+  #Step 2: Allow frontend-service
+
+      #Assume frontend-service runs under this
+      # Kubernetes service account:
+
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: cart-service-allow-frontend
+  namespace: shopk8s
+spec:
+  selector:
+    matchLabels:
+      app: cart-service
+
+  action: ALLOW
+
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/shopk8s/sa/frontend-sa
+
+      to:
+        - operation:
+            ports:
+              - "8080"
+            methods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+            paths:
+              - /cart
+              - /cart/*
+
+#Allow Prometheus health and metrics access
+
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: cart-service-allow-monitoring
+  namespace: shopk8s
+spec:
+  selector:
+    matchLabels:
+      app: cart-service
+
+  action: ALLOW
+
+  rules:
+    - from:
+        - source:
+            namespaces:
+              - monitoring
+
+      to:
+        - operation:
+            methods:
+              - GET
+            paths:
+              - /metrics
+              - /healthz
+              - /readyz
+
+#Explicitly deny a dangerous administrative endpoint
+
+#DENY policies are evaluated before ALLOW policies
+
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: cart-service-deny-admin
+  namespace: shopk8s
+spec:
+  selector:
+    matchLabels:
+      app: cart-service
+
+  action: DENY
+
+  rules:
+    - to:
+        - operation:
+            paths:
+              - /admin
+              - /admin/*
+
+--- 
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: cart-service-require-jwt
+  namespace: shopk8s
+spec:
+  selector:
+    matchLabels:
+      app: cart-service
+
+  action: ALLOW
+
+  rules:
+    - from:
+        - source:
+            requestPrincipals:
+              - "https://auth.example.com/*"
+
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: cart-service-cart-role
+  namespace: shopk8s
+spec:
+  selector:
+    matchLabels:
+      app: cart-service
+
+  action: ALLOW
+
+  rules:
+    - from:
+        - source:
+            requestPrincipals:
+              - "https://auth.example.com/*"
+
+      when:
+        - key: request.auth.claims[roles]
+          values:
+            - cart-user
+            - cart-admin

@@ -1,0 +1,45 @@
+#WasmPlugin extends Envoy using a WebAssembly module.
+
+#Common use cases include:
+
+  #Custom authentication
+  #Custom authorization
+  #Request transformation
+  #Proprietary telemetry
+  #Data-loss-prevention checks
+  #Custom header processing
+
+#Istio describes it as a mechanism for extending proxy functionality
+#with WebAssembly filters. Newer Istio documentation also introduces
+#TrafficExtension as a unified extension API that can support WebAssembly 
+#or Lua. Check the feature maturity in your exact Istio
+ #release before adopting it
+
+apiVersion: extensions.istio.io/v1alpha1
+kind: WasmPlugin
+metadata:
+  name: cart-service-custom-filter
+  namespace: shopk8s
+spec:
+  selector:
+    matchLabels:
+      app: cart-service
+
+  url: oci://registry.example.com/istio/cart-filter:v1.0.0
+
+  phase: AUTHZ
+
+  priority: 10
+
+  failStrategy: FAIL_CLOSE
+
+  pluginConfig:
+    allowedHeaders:
+      - x-request-id
+      - x-user-id
+
+#This will work only if that OCI image contains a valid 
+#Envoy-compatible Wasm plugin whose configuration schema 
+#accepts those fields. The YAML cannot magically invent 
+#the plugin implementation, though configuration files have 
+#been trying to achieve sentience for years

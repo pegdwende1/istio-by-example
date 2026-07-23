@@ -1,0 +1,109 @@
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: cart-service
+  namespace: shopk8s
+
+spec:
+  hosts:
+    - cart-service.shopk8s.svc.cluster.local
+
+  # This applies the routing rules to internal mesh traffic.
+  gateways:
+    - mesh
+
+  exportTo:
+    - "."
+
+  http:
+
+    # ------------------------------------------------------------------
+    # RULE 1: Explicit canary testing
+    # ------------------------------------------------------------------
+    # Requests containing this header always go to v2.
+    # This lets developers and QA test the canary without exposing every
+    # user to it.
+    - name: canary-header-route
+
+      match:
+        - headers:
+            x-cart-version:
+              exact: v2
+
+      route:
+        - destination:
+            host: cart-service.shopk8s.svc.cluster.local
+            subset: v2
+            port:
+              number: 8080
+
+      timeout: 5s
+
+      retries:
+        attempts: 2
+        perTryTimeout: 2s
+        retryOn: >-
+          connect-failure,
+          refused-stream,
+          unavailable,
+          cancelled,
+          reset,
+          gateway-error,
+          503
+
+        # Avoid retrying the same failed pod.
+        retryIgnorePreviousHosts: true
+
+        # Permit a retry to use another locality when necessary.
+        retryRemoteLocalities: true
+
+        # Exponential-backoff base interval.
+        backoff: 100ms
+
+    # ------------------------------------------------------------------
+    # RULE 2: Default 90/10 canary release
+    # ------------------------------------------------------------------
+    - name: weighted-canary-route
+
+      route:
+        - destination:
+            host: cart-service.shopk8s.svc.cluster.local
+            subset: v1
+            port:
+              number: 8080
+          weight: 90
+
+        - destination:
+            host: cart-service.shopk8s.svc.cluster.local
+            subset: v2
+            port:
+              number: 8080
+          weight: 10
+
+      # Total request deadline, including retries.
+      timeout: 5s
+
+      retries:
+        # Two retries means no more than three total attempts:
+        # one original request plus two retries.
+        attempts: 2
+
+        perTryTimeout: 2s
+
+        retryOn: >-
+          connect-failure,
+          refused-stream,
+          unavailable,
+          cancelled,
+          reset,
+          gateway-error,
+          503
+
+        retryIgnorePreviousHosts: true
+        retryRemoteLocalities: true
+        backoff: 100ms
+
+      headers:
+        response:
+          add:
+            x-istio-route: cart-service-weighted-canary

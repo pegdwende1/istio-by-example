@@ -1,0 +1,28 @@
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: cart-service-external
+  namespace: shopk8s
+spec:
+  hosts:
+    - cart.example.com
+
+  gateways:
+    - shop-gateway
+
+  http:
+    - match:
+        - uri:
+            prefix: /cart
+
+      rewrite:
+        uri: /
+
+      route:
+        - destination:
+            host: cart-service.shopk8s.svc.cluster.local
+            port:
+              number: 8080
+
+#Your external VirtualService must reference the gateway defined
+#in gateway.yaml

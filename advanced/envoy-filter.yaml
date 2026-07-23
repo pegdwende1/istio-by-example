@@ -1,0 +1,53 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: cart-service-response-header
+  namespace: shopk8s
+spec:
+  workloadSelector:
+    labels:
+      app: cart-service
+
+  configPatches:
+    - applyTo: HTTP_FILTER
+
+      match:
+        context: SIDECAR_INBOUND
+
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+
+      patch:
+        operation: INSERT_BEFORE
+
+        value:
+          name: envoy.filters.http.lua
+
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+
+            inlineCode: |
+              function envoy_on_response(response_handle)
+                response_handle:headers():add(
+                  "x-served-by-istio",
+                  "cart-service"
+                )
+              end
+
+#EnvoyFilter modifies the generated Envoy configuration directly.
+
+#It can alter:
+
+  #HTTP filters
+  #Network filters
+  #Listeners
+  #Clusters
+  #Routes
+  #Lua filters
+  #External processing filters
+
+#This is an advanced, lower-level escape hatch. It is more tightly coupled to Envoy and Istio internals and remains on a less stable API than most core Istio resources. Prefer first-class Istio APIs whenever they can solve the problem.
+
+#Add a response header with an Envoy Lua filter

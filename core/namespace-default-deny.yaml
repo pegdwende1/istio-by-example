@@ -1,0 +1,44 @@
+#A namespace-wide default-deny policy rejects all traffic to
+#any workload in the namespace that does not have an explicit
+#ALLOW policy matching the request.
+
+#This is the strongest zero-trust baseline: deny everything,
+#then explicitly allow only what is needed.
+
+#When no selector is specified, the policy applies to ALL
+#workloads in the namespace.
+
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: namespace-default-deny
+  namespace: shopk8s
+spec: {}
+
+#An empty spec with no selector, no action, and no rules means:
+  #Applies to every workload in the namespace
+  #Action defaults to ALLOW
+  #No rules means nothing is allowed
+  #Result: all traffic is denied by default
+
+#This is different from the workload-specific default-deny in
+#authorization-policy.yaml which uses a selector. Without a
+#selector, this catches every workload in the namespace,
+#including new ones that have not yet received their own policy.
+
+#After applying this, every workload needs at least one ALLOW
+#policy to receive any traffic. This prevents accidental exposure
+#when someone deploys a new service and forgets to add a policy.
+
+#Evaluation order reminder:
+  #1. If ANY DENY policy matches -> deny
+  #2. If no ALLOW policy exists for the workload -> allow all
+  #3. If ANY ALLOW policy exists -> must match at least one rule
+  #4. CUSTOM policies are evaluated alongside ALLOW/DENY
+
+#With this namespace-wide deny, step 3 is always in effect for
+#every workload in shopk8s.
+
+#Pair this with workload-specific ALLOW policies like:
+  #cart-service-allow-frontend (in authorization-policy.yaml)
+  #cart-service-allow-monitoring (in authorization-policy.yaml)

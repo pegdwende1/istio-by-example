@@ -1,0 +1,50 @@
+#Despite the confusing name, the Sidecar CRD does not inject the
+ #Envoy container.
+
+#It limits and customizes the networking configuration delivered 
+#to selected sidecar proxies, including:
+
+  #Which namespaces and services a workload may reach
+  #Which outbound hosts appear in the proxy configuration
+  #Custom ingress listeners
+  #Egress listeners
+  #Configuration isolation
+
+#Reducing sidecar scope can lower Envoy configuration size and 
+#restrict accidental cross-namespace reachability
+
+apiVersion: networking.istio.io/v1
+kind: Sidecar
+metadata:
+  name: cart-service-scope
+  namespace: shopk8s
+spec:
+  workloadSelector:
+    labels:
+      app: cart-service
+
+  egress:
+    - hosts:
+        # Services in the same namespace
+        - "./*"
+
+        # Istio control-plane services
+        - "istio-system/*"
+
+        # Services registered in a payments namespace
+        - "payments/*"
+
+
+---
+#Namespace-wide Sidecar scope
+apiVersion: networking.istio.io/v1
+kind: Sidecar
+metadata:
+  name: namespace-default
+  namespace: shopk8s
+spec:
+  egress:
+    - hosts:
+        - "./*"
+        - "istio-system/*"
+        - "payments/*"

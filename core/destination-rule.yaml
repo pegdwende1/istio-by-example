@@ -1,0 +1,222 @@
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: cart-service
+  namespace: shopk8s
+
+spec:
+  # Using the FQDN avoids namespace-resolution surprises.
+  host: cart-service.shopk8s.svc.cluster.local
+
+  # Keep this rule visible only inside the shopk8s namespace.
+  exportTo:
+    - "."
+
+  trafficPolicy:
+
+    # ------------------------------------------------------------------
+    # 1. DEFAULT LOAD-BALANCING POLICY
+    # ------------------------------------------------------------------
+    # Used unless a subset overrides it.
+    loadBalancer:
+      simple: LEAST_REQUEST
+
+      # --------------------------------------------------------------
+      # 8. LOCALITY-AWARE LOAD BALANCING
+      # --------------------------------------------------------------
+      # Prefer endpoints in the same region/zone before sending traffic
+      # farther away.
+      localityLbSetting:
+        enabled: true
+
+        distribute:
+          - from: "us-east-1/us-east-1a/*"
+            to:
+              "us-east-1/us-east-1a/*": 80
+              "us-east-1/us-east-1b/*": 15
+              "us-east-1/us-east-1c/*": 5
+
+          - from: "us-east-1/us-east-1b/*"
+            to:
+              "us-east-1/us-east-1b/*": 80
+              "us-east-1/us-east-1a/*": 15
+              "us-east-1/us-east-1c/*": 5
+
+          - from: "us-east-1/us-east-1c/*"
+            to:
+              "us-east-1/us-east-1c/*": 80
+              "us-east-1/us-east-1a/*": 10
+              "us-east-1/us-east-1b/*": 10
+
+    # ------------------------------------------------------------------
+    # 3. CONNECTION POOLING
+    # ------------------------------------------------------------------
+    connectionPool:
+      tcp:
+        # Maximum upstream TCP connections from each Envoy proxy.
+        maxConnections: 100
+
+        connectTimeout: 3s
+
+        tcpKeepalive:
+          time: 300s
+          interval: 30s
+          probes: 3
+
+      http:
+        # Maximum queued requests waiting for a connection.
+        http1MaxPendingRequests: 100
+
+        # Maximum active HTTP/2 requests.
+        http2MaxRequests: 1000
+
+        # Recycle a connection after this many requests.
+        maxRequestsPerConnection: 100
+
+        # Absolute limit on outstanding retries.
+        maxRetries: 50
+
+        idleTimeout: 60s
+
+    # ------------------------------------------------------------------
+    # 4 AND 5. CIRCUIT BREAKING / OUTLIER DETECTION
+    # ------------------------------------------------------------------
+    outlierDetection:
+      # Eject an endpoint after five consecutive gateway-type failures.
+      consecutiveGatewayErrors: 5
+
+      # Also eject it after five consecutive HTTP 5xx responses.
+      consecutive5xxErrors: 5
+
+      # How often Envoy evaluates endpoint health.
+      interval: 5s
+
+      # Initial ejection duration.
+      # Repeated failures can result in longer ejection periods.
+      baseEjectionTime: 30s
+
+      # Do not eject more than 50% of the endpoints simultaneously.
+      maxEjectionPercent: 50
+
+      # Allow ejection even with relatively low request volume.
+      minHealthPercent: 0
+
+    # ------------------------------------------------------------------
+    # 6. CLIENT-SIDE ISTIO mTLS
+    # ------------------------------------------------------------------
+    tls:
+      mode: ISTIO_MUTUAL
+
+    # ------------------------------------------------------------------
+    # 7. RETRY-BUDGET PROTECTION
+    # ------------------------------------------------------------------
+    # Limits concurrent retries relative to current request volume.
+    retryBudget:
+      percent:
+        value: 20
+      minRetryConcurrency: 3
+
+    # ------------------------------------------------------------------
+    # 10 AND 11. PORT-LEVEL / FINE-GRAINED POLICY
+    # ------------------------------------------------------------------
+    # This demonstrates a policy specifically for service port 8080.
+    #
+    # Important: port-level policy replaces the corresponding top-level
+    # policy instead of merging every omitted field. For that reason,
+    # all desired port-specific connection-pool values are repeated.
+    portLevelSettings:
+      - port:
+          number: 8080
+
+        connectionPool:
+          tcp:
+            maxConnections: 100
+            connectTimeout: 3s
+
+            tcpKeepalive:
+              time: 300s
+              interval: 30s
+              probes: 3
+
+          http:
+            http1MaxPendingRequests: 100
+            http2MaxRequests: 1000
+            maxRequestsPerConnection: 100
+            maxRetries: 50
+            idleTimeout: 60s
+
+  # --------------------------------------------------------------------
+  # 2. VERSION SUBSETS FOR CANARY / BLUE-GREEN ROUTING
+  # --------------------------------------------------------------------
+  subsets:
+
+    # Stable production version
+    - name: v1
+      labels:
+        version: v1
+
+      # --------------------------------------------------------------
+      # 10. PER-SUBSET POLICY
+      # --------------------------------------------------------------
+      trafficPolicy:
+        loadBalancer:
+          simple: LEAST_REQUEST
+
+          # Gradually increase traffic to newly started v1 pods.
+          warmup:
+            duration: 60s
+            minimumPercent: 10
+            aggression: 1.0
+
+        connectionPool:
+          tcp:
+            maxConnections: 100
+
+          http:
+            http1MaxPendingRequests: 100
+            http2MaxRequests: 1000
+            maxRequestsPerConnection: 100
+            maxRetries: 50
+
+        outlierDetection:
+          consecutive5xxErrors: 5
+          consecutiveGatewayErrors: 5
+          interval: 5s
+          baseEjectionTime: 30s
+          maxEjectionPercent: 50
+
+    # Canary version
+    - name: v2
+      labels:
+        version: v2
+
+      trafficPolicy:
+
+        # ------------------------------------------------------------
+        # 9. SESSION AFFINITY / CONSISTENT HASHING
+        # ------------------------------------------------------------
+        loadBalancer:
+          consistentHash:
+            httpCookie:
+              name: cart-session
+              ttl: 1h
+
+        # Give the canary a smaller connection pool so a new version
+        # cannot immediately consume production-level capacity.
+        connectionPool:
+          tcp:
+            maxConnections: 25
+
+          http:
+            http1MaxPendingRequests: 25
+            http2MaxRequests: 200
+            maxRequestsPerConnection: 50
+            maxRetries: 10
+
+        # More aggressive ejection for the experimental version.
+        outlierDetection:
+          consecutive5xxErrors: 3
+          consecutiveGatewayErrors: 3
+          interval: 5s
+          baseEjectionTime: 60s
+          maxEjectionPercent: 100

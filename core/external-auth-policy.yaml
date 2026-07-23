@@ -1,0 +1,35 @@
+#A CUSTOM authorization policy delegates authorization
+ #decisions to an external provider such as:
+
+  #OAuth2 Proxy
+  #OPA
+  #An enterprise policy engine
+  #A custom external authorization service
+
+#The provider must first be configured in Istio's 
+#mesh configuration
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: cart-service-external-authz
+  namespace: shopk8s
+spec:
+  selector:
+    matchLabels:
+      app: cart-service
+
+  action: CUSTOM
+
+  provider:
+    name: oauth2-proxy
+
+  rules:
+    - to:
+        - operation:
+            paths:
+              - /cart
+              - /cart/*
+
+#CUSTOM does not replace your normal ALLOW and DENY design. 
+#Istio can evaluate external authorization alongside native 
+#policy actions

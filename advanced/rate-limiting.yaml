@@ -1,0 +1,145 @@
+#Rate limiting in Istio can be achieved through:
+
+  #1. Envoy's local rate limiting (per-proxy, no external dependency)
+  #2. Envoy's global rate limiting (requires an external rate-limit service)
+  #3. WasmPlugin with a custom rate-limit module
+
+#This example demonstrates local rate limiting using an EnvoyFilter.
+#Local rate limiting is simpler but per-pod, meaning each pod
+#enforces its own limit independently.
+
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: cart-service-local-ratelimit
+  namespace: shopk8s
+spec:
+  workloadSelector:
+    labels:
+      app: cart-service
+
+  configPatches:
+    # ------------------------------------------------------------------
+    # Step 1: Add the local rate limit HTTP filter
+    # ------------------------------------------------------------------
+    - applyTo: HTTP_FILTER
+
+      match:
+        context: SIDECAR_INBOUND
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+              subFilter:
+                name: envoy.filters.http.router
+
+      patch:
+        operation: INSERT_BEFORE
+
+        value:
+          name: envoy.filters.http.local_ratelimit
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+            stat_prefix: http_local_rate_limiter
+
+            # Allow 100 requests per 60 seconds per pod.
+            token_bucket:
+              max_tokens: 100
+              tokens_per_fill: 100
+              fill_interval: 60s
+
+            # What percentage of requests are subject to the limit.
+            filter_enabled:
+              runtime_key: local_rate_limit_enabled
+              default_value:
+                numerator: 100
+                denominator: HUNDRED
+
+            # What percentage of rate-limited requests actually get 429.
+            filter_enforced:
+              runtime_key: local_rate_limit_enforced
+              default_value:
+                numerator: 100
+                denominator: HUNDRED
+
+            # Custom response when rate-limited.
+            status:
+              code: TooManyRequests
+
+            response_headers_to_add:
+              - append_action: OVERWRITE_IF_EXISTS_OR_ADD
+                header:
+                  key: x-rate-limited
+                  value: "true"
+
+---
+#Global rate limiting (requires an external rate-limit service like
+#Envoy's reference ratelimit service or Lyft's ratelimit).
+
+#This is a simplified example of the EnvoyFilter needed for global
+#rate limiting.
+
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: cart-service-global-ratelimit
+  namespace: shopk8s
+spec:
+  workloadSelector:
+    labels:
+      app: cart-service
+
+  configPatches:
+    - applyTo: HTTP_FILTER
+
+      match:
+        context: SIDECAR_INBOUND
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+              subFilter:
+                name: envoy.filters.http.router
+
+      patch:
+        operation: INSERT_BEFORE
+
+        value:
+          name: envoy.filters.http.ratelimit
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.ratelimit.v3.RateLimit
+            domain: cart-service
+            failure_mode_deny: false
+            timeout: 0.5s
+            rate_limit_service:
+              grpc_service:
+                envoy_grpc:
+                  cluster_name: rate_limit_cluster
+              transport_api_version: V3
+
+#Key differences:
+
+  #Local rate limiting:
+    #Per-pod enforcement (not shared across replicas)
+    #No external dependency
+    #Simpler to set up
+    #Less precise at scale (10 pods = 10x the total limit)
+
+  #Global rate limiting:
+    #Shared state across all pods via external service
+    #Requires deploying and maintaining a rate-limit service
+    #More accurate for API quotas
+    #Adds latency (external call per request)
+
+#Production considerations:
+
+  #For local: if you have N pods, your effective cluster-wide
+  #limit is N * per-pod-limit. Account for this during scaling.
+
+  #For global: the rate-limit service itself needs to be highly
+  #available. A failure there can either block all traffic
+  #(failure_mode_deny: true) or allow unlimited traffic
+  #(failure_mode_deny: false).
+
+  #Consider applying rate limits only to specific paths using
+  #route-level rate limit actions instead of blanket per-pod limits.

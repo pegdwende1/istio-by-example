@@ -1,0 +1,30 @@
+apiVersion: networking.istio.io/v1
+kind: Gateway
+metadata:
+  name: shop-gateway
+  namespace: shopk8s
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        - cart.example.com
+
+# An Istio Gateway configures the ports and protocols exposed by 
+#an Istio ingress or egress gateway.
+
+#It answers questions such as:
+
+  #Which ports should the ingress gateway listen on?
+  #Should it accept HTTP or HTTPS?
+  #Which hostnames should it accept?
+  #Where is the TLS certificate?
+
+#The Gateway opens the entrance. The VirtualService determines 
+#where traffic entering through it goes. Istio also supports the 
+#Kubernetes Gateway API and intends that API to become its default
+#traffic-management interface over time

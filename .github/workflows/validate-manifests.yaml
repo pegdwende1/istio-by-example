@@ -1,0 +1,84 @@
+name: Validate Istio Manifests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**.yaml'
+      - '**.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '**.yaml'
+      - '**.yml'
+
+jobs:
+  kubeconform:
+    name: Validate YAML with kubeconform
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install kubeconform
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz
+          sudo mv kubeconform /usr/local/bin/
+
+      - name: Validate core manifests
+        run: |
+          kubeconform \
+            -summary \
+            -output text \
+            -skip CustomResourceDefinition \
+            -ignore-missing-schemas \
+            -kubernetes-version 1.30.0 \
+            core/ observability/ egress/ advanced/ chaos/ vm/ future/
+
+  istioctl-analyze:
+    name: Analyze with istioctl
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install istioctl
+        run: |
+          curl -sSL https://istio.io/downloadIstio | ISTIO_VERSION=1.23.0 sh -
+          echo "$PWD/istio-1.23.0/bin" >> $GITHUB_PATH
+
+      - name: Run istioctl analyze
+        run: |
+          istioctl analyze \
+            --use-kube=false \
+            core/ observability/ egress/ advanced/ vm/ \
+            2>&1 | tee analysis.txt
+
+          # Fail on errors (warnings are informational)
+          if grep -q "^Error" analysis.txt; then
+            echo "::error::istioctl analyze found errors"
+            exit 1
+          fi
+
+      - name: Upload analysis results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: istio-analysis
+          path: analysis.txt
+
+  yaml-lint:
+    name: YAML lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install yamllint
+        run: pip install yamllint
+
+      - name: Lint YAML files
+        run: |
+          yamllint \
+            -d "{extends: relaxed, rules: {line-length: {max: 150}, comments: {min-spaces-from-content: 1}}}" \
+            core/ observability/ egress/ advanced/ chaos/ vm/ future/

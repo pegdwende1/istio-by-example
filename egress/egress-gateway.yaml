@@ -1,0 +1,99 @@
+apiVersion: networking.istio.io/v1
+kind: Gateway
+metadata:
+  name: shop-egress-gateway
+  namespace: shopk8s
+spec:
+  selector:
+    istio: egressgateway
+
+  servers:
+    - port:
+        number: 443
+        name: tls-egress
+        protocol: TLS
+
+      tls:
+        mode: ISTIO_MUTUAL
+
+      hosts:
+        - api.stripe.com
+
+#An egress Gateway forces outbound traffic through a dedicated
+#gateway workload instead of allowing each sidecar to reach
+#external services directly.
+
+#Common reasons to use an egress gateway:
+
+  #Centralized egress monitoring and logging
+  #Restricting which nodes have internet access
+  #Applying consistent egress policies
+  #Compliance and audit requirements
+  #Network address translation (stable source IP)
+
+#The flow for controlled egress is:
+
+  #Sidecar -> (mesh) -> Egress Gateway -> External Service
+
+#This requires coordination between:
+  #A ServiceEntry (registers the external host)
+  #A VirtualService (routes mesh traffic to the egress gateway)
+  #A DestinationRule (configures TLS to the egress gateway)
+  #The egress Gateway itself (this file)
+  #A second VirtualService on the gateway (routes to the real external host)
+
+---
+#VirtualService to route mesh traffic to the egress gateway
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: stripe-via-egress
+  namespace: shopk8s
+spec:
+  hosts:
+    - api.stripe.com
+
+  gateways:
+    - mesh
+    - shop-egress-gateway
+
+  tls:
+    - match:
+        - gateways:
+            - mesh
+          port: 443
+          sniHosts:
+            - api.stripe.com
+
+      route:
+        - destination:
+            host: istio-egressgateway.istio-system.svc.cluster.local
+            port:
+              number: 443
+
+    - match:
+        - gateways:
+            - shop-egress-gateway
+          port: 443
+          sniHosts:
+            - api.stripe.com
+
+      route:
+        - destination:
+            host: api.stripe.com
+            port:
+              number: 443
+
+---
+#DestinationRule for the egress gateway itself
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: egress-gateway-stripe
+  namespace: shopk8s
+spec:
+  host: istio-egressgateway.istio-system.svc.cluster.local
+
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
